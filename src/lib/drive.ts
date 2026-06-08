@@ -142,6 +142,19 @@ export async function getDriveForUser(userId: string, request?: Request) {
     token_type: credentials.tokenType,
   });
 
+  try {
+    const accessToken = await auth.getAccessToken();
+
+    if (!accessToken.token) {
+      throw new Error("Missing Google access token");
+    }
+  } catch {
+    throw new ApiError(
+      "Google Drive needs reconnecting. Sign out and sign in with Google again.",
+      403,
+    );
+  }
+
   return google.drive({ version: "v3", auth });
 }
 

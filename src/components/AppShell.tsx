@@ -28,6 +28,7 @@ import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { FilerLogo } from "@/components/FilerLogo";
 
 const drawerWidth = 248;
 
@@ -68,9 +69,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const drawer = (
     <Stack sx={{ height: "100%" }}>
       <Toolbar sx={{ px: 3 }}>
-        <Typography component="div" sx={{ fontWeight: 700 }} variant="h6">
-          Filer
-        </Typography>
+        <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+          <FilerLogo size={34} />
+          <Typography component="div" sx={{ fontWeight: 700 }} variant="h6">
+            Filer
+          </Typography>
+        </Stack>
       </Toolbar>
       <Navigation />
       <Box sx={{ flex: 1 }} />

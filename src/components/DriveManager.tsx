@@ -47,6 +47,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { signIn } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
@@ -323,6 +324,11 @@ export function DriveManager({ title, view = "all" }: DriveManagerProps) {
     moveMutation.error ??
     shareMutation.error ??
     deleteMutation.error;
+  const visibleError = (mutationError ?? filesQuery.error) as Error | null;
+  const shouldReconnect =
+    visibleError?.message.includes("Google Drive needs reconnecting") ||
+    visibleError?.message.includes("unregistered callers") ||
+    visibleError?.message.includes("consumer identity");
 
   const openMenu = (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -475,9 +481,26 @@ export function DriveManager({ title, view = "all" }: DriveManagerProps) {
 
         {isMutating && <LinearProgress />}
 
-        {(mutationError || filesQuery.error) && (
-          <Alert severity="error">
-            {((mutationError ?? filesQuery.error) as Error).message}
+        {visibleError && (
+          <Alert
+            action={
+              shouldReconnect ? (
+                <Button
+                  color="inherit"
+                  onClick={() =>
+                    signIn("google", {
+                      callbackUrl: window.location.pathname,
+                    })
+                  }
+                  size="small"
+                >
+                  Reconnect
+                </Button>
+              ) : undefined
+            }
+            severity="error"
+          >
+            {visibleError.message}
           </Alert>
         )}
 
