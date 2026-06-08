@@ -48,6 +48,23 @@ function cleanFolderId(folderId?: string | null) {
   return folderId?.trim() || "root";
 }
 
+function needsDriveReconnect(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+
+  return (
+    message.includes("unregistered callers") ||
+    message.includes("consumer identity") ||
+    message.includes("missing required authentication credential") ||
+    message.includes("login required") ||
+    message.includes("invalid_grant") ||
+    message.includes("invalid credentials")
+  );
+}
+
 function fileFields() {
   return [
     "id",
@@ -148,6 +165,11 @@ export async function getDriveForUser(userId: string, request?: Request) {
     if (!accessToken.token) {
       throw new Error("Missing Google access token");
     }
+
+    auth.setCredentials({
+      ...auth.credentials,
+      access_token: accessToken.token,
+    });
   } catch {
     throw new ApiError(
       "Google Drive needs reconnecting. Sign out and sign in with Google again.",
@@ -158,18 +180,35 @@ export async function getDriveForUser(userId: string, request?: Request) {
   return google.drive({ version: "v3", auth });
 }
 
+export async function withDriveReconnectError<T>(operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (needsDriveReconnect(error)) {
+      throw new ApiError(
+        "Google Drive needs reconnecting. Sign out and sign in with Google again.",
+        403,
+      );
+    }
+
+    throw error;
+  }
+}
+
 async function ensureAppFolder(userId: string, drive: UserDriveContext) {
-  const existing = await drive.files.list({
-    fields: "files(id,name,mimeType)",
-    pageSize: 1,
-    q: [
-      "'root' in parents",
-      "trashed = false",
-      `mimeType = '${folderMimeType}'`,
-      "name = 'Filer'",
-    ].join(" and "),
-    supportsAllDrives: true,
-  });
+  const existing = await withDriveReconnectError(() =>
+    drive.files.list({
+      fields: "files(id,name,mimeType)",
+      pageSize: 1,
+      q: [
+        "'root' in parents",
+        "trashed = false",
+        `mimeType = '${folderMimeType}'`,
+        "name = 'Filer'",
+      ].join(" and "),
+      supportsAllDrives: true,
+    }),
+  );
 
   const existingFolderId = existing.data.files?.[0]?.id;
 
@@ -177,15 +216,17 @@ async function ensureAppFolder(userId: string, drive: UserDriveContext) {
     return existingFolderId;
   }
 
-  const created = await drive.files.create({
-    fields: "id",
-    requestBody: {
-      mimeType: folderMimeType,
-      name: "Filer",
-      parents: ["root"],
-    },
-    supportsAllDrives: true,
-  });
+  const created = await withDriveReconnectError(() =>
+    drive.files.create({
+      fields: "id",
+      requestBody: {
+        mimeType: folderMimeType,
+        name: "Filer",
+        parents: ["root"],
+      },
+      supportsAllDrives: true,
+    }),
+  );
 
   if (!created.data.id) {
     throw new ApiError("Unable to create app folder", 500);
@@ -229,15 +270,17 @@ export async function listDriveFiles(
     query.push(`mimeType = '${folderMimeType}'`);
   }
 
-  const response = await drive.files.list({
-    fields: `nextPageToken, files(${fileFields()})`,
-    orderBy: "folder,modifiedTime desc,name",
-    pageSize: 100,
-    pageToken: params.pageToken,
-    q: query.join(" and "),
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
+  const response = await withDriveReconnectError(() =>
+    drive.files.list({
+      fields: `nextPageToken, files(${fileFields()})`,
+      includeItemsFromAllDrives: true,
+      orderBy: "folder,modifiedTime desc,name",
+      pageSize: 100,
+      pageToken: params.pageToken,
+      q: query.join(" and "),
+      supportsAllDrives: true,
+    }),
+  );
 
   return {
     files: (response.data.files ?? []).map((file) =>
@@ -259,18 +302,20 @@ export async function uploadDriveFile(
     file.stream() as unknown as NodeReadableStream<Uint8Array>,
   );
 
-  const response = await drive.files.create({
-    fields: fileFields(),
-    media: {
-      body,
-      mimeType: file.type || "application/octet-stream",
-    },
-    requestBody: {
-      name: file.name,
-      parents: [folderId],
-    },
-    supportsAllDrives: true,
-  });
+  const response = await withDriveReconnectError(() =>
+    drive.files.create({
+      fields: fileFields(),
+      media: {
+        body,
+        mimeType: file.type || "application/octet-stream",
+      },
+      requestBody: {
+        name: file.name,
+        parents: [folderId],
+      },
+      supportsAllDrives: true,
+    }),
+  );
 
   return normalizeFile(response.data as DriveFile);
 }
@@ -283,15 +328,17 @@ export async function createDriveFolder(
 ) {
   const drive = await getDriveForUser(userId, request);
   const folderId = await resolveFolderId(userId, drive, parentId);
-  const response = await drive.files.create({
-    fields: fileFields(),
-    requestBody: {
-      mimeType: folderMimeType,
-      name,
-      parents: [folderId],
-    },
-    supportsAllDrives: true,
-  });
+  const response = await withDriveReconnectError(() =>
+    drive.files.create({
+      fields: fileFields(),
+      requestBody: {
+        mimeType: folderMimeType,
+        name,
+        parents: [folderId],
+      },
+      supportsAllDrives: true,
+    }),
+  );
 
   return normalizeFile(response.data as DriveFile);
 }
@@ -303,12 +350,14 @@ export async function renameDriveFile(
   request?: Request,
 ) {
   const drive = await getDriveForUser(userId, request);
-  const response = await drive.files.update({
-    fileId,
-    fields: fileFields(),
-    requestBody: { name },
-    supportsAllDrives: true,
-  });
+  const response = await withDriveReconnectError(() =>
+    drive.files.update({
+      fileId,
+      fields: fileFields(),
+      requestBody: { name },
+      supportsAllDrives: true,
+    }),
+  );
 
   return normalizeFile(response.data as DriveFile);
 }
@@ -319,12 +368,14 @@ export async function trashDriveFile(
   request?: Request,
 ) {
   const drive = await getDriveForUser(userId, request);
-  const response = await drive.files.update({
-    fileId,
-    fields: fileFields(),
-    requestBody: { trashed: true },
-    supportsAllDrives: true,
-  });
+  const response = await withDriveReconnectError(() =>
+    drive.files.update({
+      fileId,
+      fields: fileFields(),
+      requestBody: { trashed: true },
+      supportsAllDrives: true,
+    }),
+  );
 
   return normalizeFile(response.data as DriveFile);
 }
@@ -337,19 +388,23 @@ export async function moveDriveFile(
 ) {
   const drive = await getDriveForUser(userId, request);
   const folderId = await resolveFolderId(userId, drive, toFolderId);
-  const current = await drive.files.get({
-    fileId,
-    fields: "parents",
-    supportsAllDrives: true,
-  });
+  const current = await withDriveReconnectError(() =>
+    drive.files.get({
+      fileId,
+      fields: "parents",
+      supportsAllDrives: true,
+    }),
+  );
 
-  const response = await drive.files.update({
-    addParents: folderId,
-    fileId,
-    fields: fileFields(),
-    removeParents: current.data.parents?.join(","),
-    supportsAllDrives: true,
-  });
+  const response = await withDriveReconnectError(() =>
+    drive.files.update({
+      addParents: folderId,
+      fileId,
+      fields: fileFields(),
+      removeParents: current.data.parents?.join(","),
+      supportsAllDrives: true,
+    }),
+  );
 
   return normalizeFile(response.data as DriveFile);
 }
@@ -364,28 +419,32 @@ export async function shareDriveFile(input: {
   const drive = await getDriveForUser(input.userId, input.request);
   const email = input.email?.trim();
 
-  await drive.permissions.create({
-    fileId: input.fileId,
-    requestBody:
-      input.anyone || !email
-        ? {
-            role: "reader",
-            type: "anyone",
-          }
-        : {
-            emailAddress: email,
-            role: "reader",
-            type: "user",
-          },
-    sendNotificationEmail: Boolean(email && !input.anyone),
-    supportsAllDrives: true,
-  });
+  await withDriveReconnectError(() =>
+    drive.permissions.create({
+      fileId: input.fileId,
+      requestBody:
+        input.anyone || !email
+          ? {
+              role: "reader",
+              type: "anyone",
+            }
+          : {
+              emailAddress: email,
+              role: "reader",
+              type: "user",
+            },
+      sendNotificationEmail: Boolean(email && !input.anyone),
+      supportsAllDrives: true,
+    }),
+  );
 
-  const response = await drive.files.get({
-    fileId: input.fileId,
-    fields: fileFields(),
-    supportsAllDrives: true,
-  });
+  const response = await withDriveReconnectError(() =>
+    drive.files.get({
+      fileId: input.fileId,
+      fields: fileFields(),
+      supportsAllDrives: true,
+    }),
+  );
 
   return normalizeFile(response.data as DriveFile);
 }

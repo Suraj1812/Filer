@@ -51,23 +51,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
         );
       }
 
-      session.google = {
-        accessToken: token.googleAccessToken
-          ? String(token.googleAccessToken)
-          : undefined,
-        expiresAt:
-          typeof token.googleExpiresAt === "number"
-            ? token.googleExpiresAt
-            : undefined,
-        refreshToken: token.googleRefreshToken
-          ? String(token.googleRefreshToken)
-          : undefined,
-        scope: token.googleScope ? String(token.googleScope) : undefined,
-        tokenType: token.googleTokenType
-          ? String(token.googleTokenType)
-          : undefined,
-      };
-
       return session;
     },
   },

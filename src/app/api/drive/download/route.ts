@@ -1,5 +1,9 @@
 import { Readable } from "stream";
-import { getDriveForUser, getExportMimeType } from "@/lib/drive";
+import {
+  getDriveForUser,
+  getExportMimeType,
+  withDriveReconnectError,
+} from "@/lib/drive";
 import { ApiError, requireUserId, toErrorResponse } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -19,22 +23,26 @@ export async function GET(request: Request) {
     }
 
     const drive = await getDriveForUser(userId, request);
-    const metadata = await drive.files.get({
-      fileId,
-      fields: "name,mimeType",
-      supportsAllDrives: true,
-    });
+    const metadata = await withDriveReconnectError(() =>
+      drive.files.get({
+        fileId,
+        fields: "name,mimeType",
+        supportsAllDrives: true,
+      }),
+    );
 
     const name = safeFileName(metadata.data.name ?? "download");
     const exportTarget = getExportMimeType(metadata.data.mimeType);
 
     if (exportTarget) {
-      const response = await drive.files.export(
-        {
-          fileId,
-          mimeType: exportTarget.mimeType,
-        },
-        { responseType: "stream" },
+      const response = await withDriveReconnectError(() =>
+        drive.files.export(
+          {
+            fileId,
+            mimeType: exportTarget.mimeType,
+          },
+          { responseType: "stream" },
+        ),
       );
 
       const stream = Readable.toWeb(response.data as Readable);
@@ -46,13 +54,15 @@ export async function GET(request: Request) {
       });
     }
 
-    const response = await drive.files.get(
-      {
-        alt: "media",
-        fileId,
-        supportsAllDrives: true,
-      },
-      { responseType: "stream" },
+    const response = await withDriveReconnectError(() =>
+      drive.files.get(
+        {
+          alt: "media",
+          fileId,
+          supportsAllDrives: true,
+        },
+        { responseType: "stream" },
+      ),
     );
 
     const stream = Readable.toWeb(response.data as Readable);
