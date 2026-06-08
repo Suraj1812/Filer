@@ -16,7 +16,7 @@ Filer is a Next.js 15 Google Drive file manager. Users sign in with Google, gran
 Create `.env.local` locally and add the same values in Vercel for production:
 
 ```env
-DATABASE_URL="postgresql://..."
+DATABASE_URL="postgresql://postgres.PROJECT_REF:DB_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
 AUTH_SECRET="generate-a-long-random-secret"
 AUTH_URL="http://localhost:3000"
 AUTH_TRUST_HOST="true"
@@ -30,6 +30,8 @@ For production, set `AUTH_URL` to the Vercel production URL. Add these Google OA
 http://localhost:3000/api/auth/callback/google
 https://your-vercel-domain.vercel.app/api/auth/callback/google
 ```
+
+On Vercel, use the Supabase pooler URL for `DATABASE_URL`. The direct host (`db.PROJECT_REF.supabase.co:5432`) can be IPv6-only and may fail from serverless runtimes.
 
 ## Database
 
