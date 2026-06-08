@@ -12,7 +12,6 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import { signIn } from "next-auth/react";
 import { FilerLogo } from "@/components/FilerLogo";
 
 export function LoginPanel() {
@@ -61,8 +60,9 @@ export function LoginPanel() {
             </Stack>
 
             <Button
+              component="a"
               fullWidth
-              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+              href="/api/auth/connect/google?callbackUrl=%2Fdashboard"
               size="large"
               startIcon={<GoogleIcon />}
               variant="contained"

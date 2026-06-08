@@ -47,7 +47,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { signIn } from "next-auth/react";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
@@ -182,6 +182,7 @@ function FileIcon({ file }: { file: DriveFile }) {
 
 export function DriveManager({ title, view = "all" }: DriveManagerProps) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
@@ -329,6 +330,9 @@ export function DriveManager({ title, view = "all" }: DriveManagerProps) {
     visibleError?.message.includes("Google Drive needs reconnecting") ||
     visibleError?.message.includes("unregistered callers") ||
     visibleError?.message.includes("consumer identity");
+  const reconnectHref = `/api/auth/connect/google?callbackUrl=${encodeURIComponent(
+    pathname || "/dashboard",
+  )}`;
 
   const openMenu = (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -486,12 +490,9 @@ export function DriveManager({ title, view = "all" }: DriveManagerProps) {
             action={
               shouldReconnect ? (
                 <Button
+                  component="a"
                   color="inherit"
-                  onClick={() =>
-                    signIn("google", {
-                      callbackUrl: window.location.pathname,
-                    })
-                  }
+                  href={reconnectHref}
                   size="small"
                 >
                   Reconnect
