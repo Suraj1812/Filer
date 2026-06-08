@@ -22,6 +22,7 @@ export async function POST(request: Request) {
       fileId: input.fileId,
       email: input.email || undefined,
       anyone: input.anyone,
+      request,
     });
 
     await logActivity({

@@ -24,6 +24,20 @@ export function toErrorResponse(error: unknown) {
     return Response.json({ error: error.message }, { status: error.status });
   }
 
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof error.status === "number" &&
+    error.status >= 400 &&
+    error.status < 500
+  ) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Request failed" },
+      { status: error.status },
+    );
+  }
+
   console.error(error);
   return Response.json({ error: "Unexpected server error" }, { status: 500 });
 }

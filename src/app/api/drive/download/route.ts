@@ -18,7 +18,7 @@ export async function GET(request: Request) {
       throw new ApiError("fileId is required", 422);
     }
 
-    const drive = await getDriveForUser(userId);
+    const drive = await getDriveForUser(userId, request);
     const metadata = await drive.files.get({
       fileId,
       fields: "name,mimeType",

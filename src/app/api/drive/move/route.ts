@@ -16,7 +16,12 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const input = schema.parse(await request.json());
-    const file = await moveDriveFile(userId, input.fileId, input.toFolderId);
+    const file = await moveDriveFile(
+      userId,
+      input.fileId,
+      input.toFolderId,
+      request,
+    );
 
     await logActivity({
       userId,

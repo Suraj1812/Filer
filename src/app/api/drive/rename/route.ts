@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const input = schema.parse(await request.json());
-    const file = await renameDriveFile(userId, input.fileId, input.name);
+    const file = await renameDriveFile(userId, input.fileId, input.name, request);
 
     await logActivity({
       userId,

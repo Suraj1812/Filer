@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const input = schema.parse(await request.json());
-    const file = await trashDriveFile(userId, input.fileId);
+    const file = await trashDriveFile(userId, input.fileId, request);
 
     await logActivity({
       userId,

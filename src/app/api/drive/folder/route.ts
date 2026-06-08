@@ -15,7 +15,12 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const input = schema.parse(await request.json());
-    const folder = await createDriveFolder(userId, input.name, input.parentId);
+    const folder = await createDriveFolder(
+      userId,
+      input.name,
+      input.parentId,
+      request,
+    );
 
     await logActivity({
       userId,

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const uploaded = [];
 
     for (const file of files) {
-      const result = await uploadDriveFile(userId, file, folderId);
+      const result = await uploadDriveFile(userId, file, folderId, request);
       uploaded.push(result);
       await logActivity({
         userId,

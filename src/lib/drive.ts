@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { getToken } from "next-auth/jwt";
 import { Readable } from "stream";
 import type { ReadableStream as NodeReadableStream } from "stream/web";
 import {
@@ -17,6 +18,27 @@ type ListParams = {
 };
 
 type UserDriveContext = Awaited<ReturnType<typeof getDriveForUser>>;
+
+type DriveCredentials = {
+  accessToken?: string;
+  expiresAt?: number;
+  refreshToken?: string;
+  scope?: string;
+  tokenType?: string;
+};
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" ? value : undefined;
+}
+
+function shouldUseSecureAuthCookie() {
+  const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "";
+  return authUrl.startsWith("https://");
+}
 
 function escapeDriveQuery(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -60,15 +82,49 @@ function normalizeFile(file: DriveFile): DriveFile {
   };
 }
 
-export async function getDriveForUser(userId: string) {
+async function getDriveCredentials(request?: Request): Promise<DriveCredentials> {
+  if (request && process.env.AUTH_SECRET) {
+    const token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET,
+      secureCookie: shouldUseSecureAuthCookie(),
+    });
+
+    const credentials = {
+      accessToken: stringValue(token?.googleAccessToken),
+      expiresAt: numberValue(token?.googleExpiresAt),
+      refreshToken: stringValue(token?.googleRefreshToken),
+      scope: stringValue(token?.googleScope),
+      tokenType: stringValue(token?.googleTokenType),
+    };
+
+    if (credentials.accessToken || credentials.refreshToken) {
+      return credentials;
+    }
+  }
+
+  const session = await getSession();
+
+  return {
+    accessToken: session?.google?.accessToken,
+    expiresAt: session?.google?.expiresAt,
+    refreshToken: session?.google?.refreshToken,
+    scope: session?.google?.scope,
+    tokenType: session?.google?.tokenType,
+  };
+}
+
+export async function getDriveForUser(userId: string, request?: Request) {
   const session = await getSession();
 
   if (!session?.user?.id || session.user.id !== userId) {
     throw new ApiError("Unauthorized", 401);
   }
 
-  if (!session.google?.accessToken && !session.google?.refreshToken) {
-    throw new ApiError("Google Drive is not connected", 403);
+  const credentials = await getDriveCredentials(request);
+
+  if (!credentials.accessToken && !credentials.refreshToken) {
+    throw new ApiError("Google Drive needs reconnecting. Sign out and sign in with Google again.", 403);
   }
 
   const auth = new google.auth.OAuth2(
@@ -77,13 +133,13 @@ export async function getDriveForUser(userId: string) {
   );
 
   auth.setCredentials({
-    access_token: session.google.accessToken,
-    expiry_date: session.google.expiresAt
-      ? session.google.expiresAt * 1000
+    access_token: credentials.accessToken,
+    expiry_date: credentials.expiresAt
+      ? credentials.expiresAt * 1000
       : undefined,
-    refresh_token: session.google.refreshToken,
-    scope: session.google.scope,
-    token_type: session.google.tokenType,
+    refresh_token: credentials.refreshToken,
+    scope: credentials.scope,
+    token_type: credentials.tokenType,
   });
 
   return google.drive({ version: "v3", auth });
@@ -139,8 +195,12 @@ async function resolveFolderId(
   return (await ensureAppFolder(userId, drive)) ?? "root";
 }
 
-export async function listDriveFiles(userId: string, params: ListParams) {
-  const drive = await getDriveForUser(userId);
+export async function listDriveFiles(
+  userId: string,
+  params: ListParams,
+  request?: Request,
+) {
+  const drive = await getDriveForUser(userId, request);
   const folderId = await resolveFolderId(userId, drive, params.folderId);
   const query = [`'${escapeDriveQuery(folderId)}' in parents`, "trashed = false"];
 
@@ -178,8 +238,9 @@ export async function uploadDriveFile(
   userId: string,
   file: File,
   parentId?: string | null,
+  request?: Request,
 ) {
-  const drive = await getDriveForUser(userId);
+  const drive = await getDriveForUser(userId, request);
   const folderId = await resolveFolderId(userId, drive, parentId);
   const body = Readable.fromWeb(
     file.stream() as unknown as NodeReadableStream<Uint8Array>,
@@ -205,8 +266,9 @@ export async function createDriveFolder(
   userId: string,
   name: string,
   parentId?: string | null,
+  request?: Request,
 ) {
-  const drive = await getDriveForUser(userId);
+  const drive = await getDriveForUser(userId, request);
   const folderId = await resolveFolderId(userId, drive, parentId);
   const response = await drive.files.create({
     fields: fileFields(),
@@ -225,8 +287,9 @@ export async function renameDriveFile(
   userId: string,
   fileId: string,
   name: string,
+  request?: Request,
 ) {
-  const drive = await getDriveForUser(userId);
+  const drive = await getDriveForUser(userId, request);
   const response = await drive.files.update({
     fileId,
     fields: fileFields(),
@@ -237,8 +300,12 @@ export async function renameDriveFile(
   return normalizeFile(response.data as DriveFile);
 }
 
-export async function trashDriveFile(userId: string, fileId: string) {
-  const drive = await getDriveForUser(userId);
+export async function trashDriveFile(
+  userId: string,
+  fileId: string,
+  request?: Request,
+) {
+  const drive = await getDriveForUser(userId, request);
   const response = await drive.files.update({
     fileId,
     fields: fileFields(),
@@ -253,8 +320,9 @@ export async function moveDriveFile(
   userId: string,
   fileId: string,
   toFolderId?: string | null,
+  request?: Request,
 ) {
-  const drive = await getDriveForUser(userId);
+  const drive = await getDriveForUser(userId, request);
   const folderId = await resolveFolderId(userId, drive, toFolderId);
   const current = await drive.files.get({
     fileId,
@@ -278,8 +346,9 @@ export async function shareDriveFile(input: {
   fileId: string;
   email?: string | null;
   anyone?: boolean;
+  request?: Request;
 }) {
-  const drive = await getDriveForUser(input.userId);
+  const drive = await getDriveForUser(input.userId, input.request);
   const email = input.email?.trim();
 
   await drive.permissions.create({
