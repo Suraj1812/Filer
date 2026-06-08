@@ -6,8 +6,8 @@ import {
   type DriveFile,
   type DriveListView,
 } from "@/lib/drive-shared";
+import { auth as getSession } from "@/lib/auth";
 import { ApiError } from "@/lib/http";
-import { getPrisma } from "@/lib/prisma";
 
 type ListParams = {
   folderId?: string;
@@ -61,15 +61,13 @@ function normalizeFile(file: DriveFile): DriveFile {
 }
 
 export async function getDriveForUser(userId: string) {
-  const prisma = getPrisma();
-  const account = await prisma.account.findFirst({
-    where: {
-      provider: "google",
-      userId,
-    },
-  });
+  const session = await getSession();
 
-  if (!account?.access_token && !account?.refresh_token) {
+  if (!session?.user?.id || session.user.id !== userId) {
+    throw new ApiError("Unauthorized", 401);
+  }
+
+  if (!session.google?.accessToken && !session.google?.refreshToken) {
     throw new ApiError("Google Drive is not connected", 403);
   }
 
@@ -79,47 +77,19 @@ export async function getDriveForUser(userId: string) {
   );
 
   auth.setCredentials({
-    access_token: account.access_token ?? undefined,
-    expiry_date: account.expires_at ? account.expires_at * 1000 : undefined,
-    refresh_token: account.refresh_token ?? undefined,
-    scope: account.scope ?? undefined,
-    token_type: account.token_type ?? undefined,
-  });
-
-  auth.on("tokens", async (tokens) => {
-    await prisma.account.update({
-      where: { id: account.id },
-      data: {
-        access_token: tokens.access_token ?? undefined,
-        expires_at: tokens.expiry_date
-          ? Math.floor(tokens.expiry_date / 1000)
-          : undefined,
-        refresh_token: tokens.refresh_token ?? undefined,
-        scope: tokens.scope ?? undefined,
-        token_type: tokens.token_type ?? undefined,
-      },
-    });
+    access_token: session.google.accessToken,
+    expiry_date: session.google.expiresAt
+      ? session.google.expiresAt * 1000
+      : undefined,
+    refresh_token: session.google.refreshToken,
+    scope: session.google.scope,
+    token_type: session.google.tokenType,
   });
 
   return google.drive({ version: "v3", auth });
 }
 
 async function ensureAppFolder(userId: string, drive: UserDriveContext) {
-  const prisma = getPrisma();
-  const settings = await prisma.appSettings.upsert({
-    where: { userId },
-    update: {},
-    create: { userId },
-  });
-
-  if (!settings.appFolderMode) {
-    return null;
-  }
-
-  if (settings.appFolderId) {
-    return settings.appFolderId;
-  }
-
   const existing = await drive.files.list({
     fields: "files(id,name,mimeType)",
     pageSize: 1,
@@ -135,11 +105,6 @@ async function ensureAppFolder(userId: string, drive: UserDriveContext) {
   const existingFolderId = existing.data.files?.[0]?.id;
 
   if (existingFolderId) {
-    await prisma.appSettings.update({
-      where: { userId },
-      data: { appFolderId: existingFolderId },
-    });
-
     return existingFolderId;
   }
 
@@ -156,11 +121,6 @@ async function ensureAppFolder(userId: string, drive: UserDriveContext) {
   if (!created.data.id) {
     throw new ApiError("Unable to create app folder", 500);
   }
-
-  await prisma.appSettings.update({
-    where: { userId },
-    data: { appFolderId: created.data.id },
-  });
 
   return created.data.id;
 }

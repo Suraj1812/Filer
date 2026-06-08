@@ -15,14 +15,18 @@ export default async function SettingsPage() {
 
   const prisma = getPrisma();
   const [settings, activity] = await Promise.all([
-    prisma.appSettings.findUnique({
-      where: { userId: session.user.id },
-    }),
-    prisma.activityLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      where: { userId: session.user.id },
-    }),
+    prisma.appSettings
+      .findUnique({
+        where: { userId: session.user.id },
+      })
+      .catch(() => null),
+    prisma.activityLog
+      .findMany({
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        where: { userId: session.user.id },
+      })
+      .catch(() => []),
   ]);
 
   return (

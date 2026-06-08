@@ -19,11 +19,12 @@ export async function GET() {
     checks.database = false;
   }
 
-  const healthy = Object.values(checks).every(Boolean);
+  const healthy = checks.authUrl && checks.googleOAuth;
 
   return Response.json(
     {
       checks,
+      databaseRequiredForLogin: false,
       ok: healthy,
     },
     { status: healthy ? 200 : 503 },
